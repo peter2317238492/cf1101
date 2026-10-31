@@ -1,0 +1,20 @@
+# Example: ImageNet ResNet-18, frozen backbone (linear probe) on Dogs vs Cats.
+exp_name: dvc_r18_linear_probe
+task: dvc
+member: B
+model: resnet18
+num_classes: 2
+pretrained: true
+freeze: backbone
+aug: rrc_flip
+img_size: 224
+optimizer: sgd
+lr: 1e-2
+wd: 1e-4
+bs: 64
+epochs: 5
+scheduler: cosine
+warmup_epochs: 0.5
+amp: true
+seed: 0
+num_workers: 4

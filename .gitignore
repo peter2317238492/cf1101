@@ -1,0 +1,9 @@
+# data and large artifacts stay local
+data/
+runs/
+*.pt
+*.pth
+__pycache__/
+.pytest_cache/
+*.pyc
+.ipynb_checkpoints/

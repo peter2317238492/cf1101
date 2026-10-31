@@ -1,0 +1,12 @@
+# Tested with Python 3.12 on Windows 11 + CUDA 12.9.
+# Install the CUDA build of torch/torchvision first (see https://pytorch.org/get-started/locally/).
+torch==2.8.0
+torchvision==0.23.0
+numpy
+pandas
+pyyaml
+matplotlib
+scikit-learn
+scikit-image
+pillow
+pytest
