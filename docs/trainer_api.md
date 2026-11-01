@@ -5,7 +5,7 @@
 ```bash
 python -m pytest -q                                            # 98 个单元测试，约 20 秒（没找到真实 CIFAR 时跳过 1 个）
 python -m scripts.smoke_dvc --n-train 1000 --n-val 500 --epochs 2   # 真实猫狗数据的 GPU 冒烟测试
-python -m scripts.smoke_cifar --n-train 5000 --epochs 1             # 真实 CIFAR-10 的 GPU 冒烟测试
+python -m scripts.smoke_cifar --epochs 1                            # 真实 CIFAR-10 的 GPU 冒烟测试（45k，约 1.5 分钟）
 ```
 
 ## 1. 最小用法

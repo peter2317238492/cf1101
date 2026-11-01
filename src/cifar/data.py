@@ -256,6 +256,7 @@ def build_cifar_loaders(cfg, root=None, train_indices=None, splits_dir=None):
                             persistent_workers=cfg.num_workers > 0, **workers, **loader_kwargs(cfg.seed)),
         "val": DataLoader(ds["val"], batch_size=cfg.bs, shuffle=False, persistent_workers=cfg.num_workers > 0,
                           **workers),
-        "test": DataLoader(ds["test"], batch_size=cfg.bs, shuffle=False, **workers),
+        # one pass over 10k small images: on Windows, starting workers (~4 s each) costs more than they save
+        "test": DataLoader(ds["test"], batch_size=cfg.bs, shuffle=False, pin_memory=workers["pin_memory"]),
         "class_to_idx": ds["class_to_idx"],
     }

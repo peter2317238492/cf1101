@@ -1,6 +1,9 @@
 """End-to-end smoke test of the CIFAR-10 loaders + trainer on real data (GPU, AMP, worker processes).
 
-    python -m scripts.smoke_cifar --root E:/6483proj/data/cifar10 --n-train 5000 --epochs 1
+    python -m scripts.smoke_cifar --root E:/6483proj/data/cifar10 --epochs 1
+
+One epoch on the full 45k reaches ~27% val on a laptop RTX 3070 Ti in ~1.5 min; --n-train 5000 is quicker
+but stays near chance (only 39 SGD steps).
 """
 import argparse
 from functools import partial
@@ -12,7 +15,7 @@ from src.trainer import TrainConfig, run_experiment
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=None, help="CIFAR-10 root (default: $CIFAR10_ROOT, then data/cifar10)")
-    ap.add_argument("--n-train", type=int, default=5000, help="0 = the full 45k train split")
+    ap.add_argument("--n-train", type=int, default=0, help="0 = the full 45k train split")
     ap.add_argument("--epochs", type=int, default=1)
     args = ap.parse_args()
     cfg = TrainConfig(exp_name="smoke_cifar_r18", member="B", task="cifar10", model="cifar_resnet18", num_classes=10,
