@@ -45,7 +45,7 @@ from torch import nn
 from src.models.registry import build_model, save_ckpt, split_parameters
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CODE_DIRS = ("src", "scripts", "configs", "tests")  # changes here mark a run's git commit as -dirty
+CODE_DIRS = ("src", "scripts", "configs", "tests", "splits")  # changes here mark a run's git commit as -dirty
 DVC_CLASS_TO_IDX = {"cat": 0, "dog": 1}
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -78,7 +78,7 @@ class TrainConfig:
     n_train: int | None = None         # None = use the full training split
     norm_mean: tuple = IMAGENET_MEAN
     norm_std: tuple = IMAGENET_STD
-    sampler: str = "none"              # recorded only; the loader builder implements it
+    sampler: str = "none"              # applied by src.cifar.train.run_cifar; other loaders refuse non-"none"
     imb_ratio: float | None = None     # recorded only (CIFAR imbalance)
     # loss
     loss: str = "ce"                   # anything but "ce" must be passed as criterion=
@@ -100,7 +100,7 @@ class TrainConfig:
     patience: int | None = None        # early stopping on val acc; None = off
     # runtime
     amp: bool = True
-    channels_last: bool = True         # only used on CUDA
+    channels_last: bool = False        # CUDA only; with cuDNN 9.10 trainable BatchNorm is 5-10x slower in it
     seed: int = 0
     deterministic: bool = False
     num_workers: int = 4
@@ -113,6 +113,8 @@ class TrainConfig:
         # YAML reads 1e-3 as a string, sweeps pass numpy scalars, paths arrive as Path: normalise all.
         for f in fields(self):
             setattr(self, f.name, _coerce(f.name, getattr(self, f.name), f.type))
+        if not self.exp_name.strip():
+            raise ValueError("TrainConfig.exp_name must not be empty (it names the run directory)")
 
     @classmethod
     def from_dict(cls, d):
@@ -132,6 +134,31 @@ class TrainConfig:
         d = asdict(self)
         d["norm_mean"], d["norm_std"] = list(self.norm_mean), list(self.norm_std)
         return d
+
+    @classmethod
+    def parse_overrides(cls, pairs):
+        """CLI `--set` pairs -> dict: ["lr=1e-3", "n_train=null", "notes=a: b"] -> {"lr": "1e-3", "n_train": None,
+        "notes": "a: b"}. Splits on the first "="; later duplicates win. str fields keep the raw text;
+        other values go through yaml.safe_load (empty = null). Field names are checked by from_dict."""
+        str_fields = {f.name for f in fields(cls) if f.type is str}
+        out = {}
+        for pair in pairs or ():
+            key, sep, raw = pair.partition("=")
+            key, raw = key.strip(), raw.strip()
+            if not sep or not key:
+                raise ValueError(f"--set expects key=value, got {pair!r}")
+            if key in str_fields:
+                out[key] = raw
+                continue
+            if ":" in raw and not raw.startswith(("[", "{")):
+                out[key] = raw  # YAML 1.1 reads 1:10 as the base-60 number 70; let TrainConfig reject it
+                continue
+            try:
+                out[key] = yaml.safe_load(raw) if raw else None
+            except yaml.YAMLError as e:
+                raise ValueError(f"--set {pair!r}: not valid YAML ({e}); quote values that contain spaces, "
+                                 f'e.g. "norm_mean=[0.5, 0.5, 0.5]"') from None
+        return out
 
 
 def _coerce(name, value, annotation):
@@ -434,12 +461,39 @@ def _check_runs_csv(path):
     path = Path(path)
     if not path.exists():
         return
-    with path.open(newline="", encoding="utf-8") as f:
+    with path.open(newline="", encoding="utf-8-sig") as f:
         header = next(csv.reader(f), [])
     unknown = [c for c in header if c not in RUNS_CSV_COLUMNS]
     if unknown:
         raise ValueError(f"{path} has columns {unknown} that are not in RUNS_CSV_COLUMNS; "
                          f"point results_csv elsewhere or fix the file")
+
+
+def _as_int(text):
+    """'0' / '0.0' (a pandas re-save) -> 0; blank or junk -> None."""
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def check_new_run(cfg):
+    """Raise before any training if cfg.exp_name/seed already finished: in this checkout (run dir) or in the
+    shared results_csv, which also holds teammates' rows. cfg.overwrite=True skips the check."""
+    _check_runs_csv(cfg.results_csv)
+    if cfg.overwrite:
+        return
+    run_dir = Path(cfg.out_dir) / cfg.exp_name / f"seed{cfg.seed}"
+    if (run_dir / "metrics.json").exists():
+        raise FileExistsError(f"{run_dir} already holds a finished run; change exp_name/seed or set overwrite=True")
+    path = Path(cfg.results_csv)
+    if path.exists():
+        with path.open(newline="", encoding="utf-8-sig") as f:
+            done = [r.get("run_id", "") for r in csv.DictReader(f)
+                    if (r.get("exp_name") or "").strip() == cfg.exp_name and _as_int(r.get("seed")) == cfg.seed]
+        if done:
+            raise FileExistsError(f"{path} already has exp_name={cfg.exp_name!r} seed={cfg.seed} (run {done[-1]}); "
+                                  f"change exp_name/seed or set overwrite=True")
 
 
 def _append_runs_csv(path, row):
@@ -448,7 +502,7 @@ def _append_runs_csv(path, row):
     clean = {c: row.get(c, "") for c in RUNS_CSV_COLUMNS}
     header = None
     if path.exists():
-        with path.open(newline="", encoding="utf-8") as f:
+        with path.open(newline="", encoding="utf-8-sig") as f:
             header = next(csv.reader(f), None)
 
     if header == RUNS_CSV_COLUMNS:
@@ -458,7 +512,7 @@ def _append_runs_csv(path, row):
     else:  # new file, or an older header: rewrite with the current columns, keeping old values by name
         old_rows = []
         if header:
-            with path.open(newline="", encoding="utf-8") as f:
+            with path.open(newline="", encoding="utf-8-sig") as f:
                 old_rows = list(csv.DictReader(f))
 
         def write():
@@ -502,15 +556,16 @@ def fit(model, train_loader, val_loader, cfg, criterion=None, test_loader=None, 
         if cfg.loss != "ce":
             raise ValueError(f"cfg.loss={cfg.loss!r} needs criterion=...; only 'ce' is built in")
         criterion = nn.CrossEntropyLoss(label_smoothing=cfg.label_smoothing)
+    elif cfg.loss == "ce" and not (type(criterion) is nn.CrossEntropyLoss and criterion.weight is None):
+        raise ValueError(f"cfg.loss='ce' but the criterion passed in is {type(criterion).__name__} "
+                         f"{_describe_criterion(criterion)}; set cfg.loss to its name, runs.csv records cfg.loss")
     elif getattr(criterion, "label_smoothing", 0.0) != cfg.label_smoothing:
         raise ValueError(f"criterion has label_smoothing={getattr(criterion, 'label_smoothing', 0.0)} but "
                          f"cfg.label_smoothing={cfg.label_smoothing}; build the criterion with "
                          f"label_smoothing=cfg.label_smoothing")
     class_to_idx = _resolve_class_to_idx(class_to_idx, train_loader, cfg.task)
-    _check_runs_csv(cfg.results_csv)
+    check_new_run(cfg)
     run_dir = Path(cfg.out_dir) / cfg.exp_name / f"seed{cfg.seed}"
-    if (run_dir / "metrics.json").exists() and not cfg.overwrite:
-        raise FileExistsError(f"{run_dir} already holds a finished run; change exp_name/seed or set overwrite=True")
     if torch.initial_seed() != cfg.seed:
         warnings.warn(f"torch is not seeded with cfg.seed={cfg.seed}; call set_seed(cfg.seed) before building "
                       f"the model and loaders (or use run_experiment), otherwise the run is not reproducible",
@@ -614,6 +669,8 @@ def run_experiment(cfg, build_loaders, criterion=None, eval_test=False):
     """Seed -> build_loaders(cfg) -> build_model(cfg.model ...) -> fit. Returns fit()'s dict plus "model".
     eval_test=True evaluates the best model once on loaders["test"] (must be labelled, e.g. CIFAR test)."""
     cfg = cfg if isinstance(cfg, TrainConfig) else TrainConfig.from_dict(cfg)
+    if eval_test and cfg.task == "dvc":
+        raise ValueError("the Dogs-vs-Cats test set has no labels; use predict() on it instead of eval_test=True")
     set_seed(cfg.seed, cfg.deterministic)
     loaders = build_loaders(cfg)
     if eval_test and "test" not in loaders:

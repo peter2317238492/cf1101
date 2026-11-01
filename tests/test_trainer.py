@@ -69,19 +69,19 @@ def test_fit_learns_separable_blobs(make_cfg):
 
 
 def test_injected_criterion_drives_training(make_cfg):
-    res = run_experiment(make_cfg(epochs=5), blob_loaders, criterion=FlipAfter(16))
+    res = run_experiment(make_cfg(epochs=5, loss="flip_after"), blob_loaders, criterion=FlipAfter(16))
     assert res["history"][-1]["val_acc"] < 0.5  # only possible if the flipped-label criterion was used
 
 
 def test_fit_restores_best_epoch_weights(make_cfg):
-    res = run_experiment(make_cfg(epochs=5), blob_loaders, criterion=FlipAfter(16))
+    res = run_experiment(make_cfg(epochs=5, loss="flip_after"), blob_loaders, criterion=FlipAfter(16))
     assert res["history"][-1]["val_acc"] < res["best_val_acc"]
     val = blob_loaders(make_cfg())["val"]
     assert evaluate(res["model"], val, amp=False)["acc"] == pytest.approx(res["best_val_acc"])
 
 
 def test_best_ckpt_reloads_with_same_val_acc(make_cfg):
-    res = run_experiment(make_cfg(epochs=5), blob_loaders, criterion=FlipAfter(16))
+    res = run_experiment(make_cfg(epochs=5, loss="flip_after"), blob_loaders, criterion=FlipAfter(16))
     model, ckpt = load_ckpt(res["ckpt_path"])
     assert ckpt["model_name"] == "tiny_test_net"
     assert ckpt["epoch"] == res["best_epoch"]
@@ -275,6 +275,22 @@ def test_rerun_of_completed_run_raises_unless_overwrite(make_cfg):
     assert run_experiment(make_cfg(epochs=1, overwrite=True), blob_loaders)["best_epoch"] == 1
 
 
+def test_run_already_in_shared_runs_csv_is_refused_unless_overwrite(make_cfg, tmp_path):
+    run_experiment(make_cfg(epochs=1), blob_loaders)
+    other_checkout = str(tmp_path / "elsewhere" / "runs")  # same results_csv, no local run dir
+    with pytest.raises(FileExistsError, match="already has exp_name='t' seed=0"):
+        run_experiment(make_cfg(epochs=1, out_dir=other_checkout), blob_loaders)
+    assert not (tmp_path / "elsewhere").exists()
+    run_experiment(make_cfg(epochs=1, out_dir=other_checkout, seed=1), blob_loaders)
+    run_experiment(make_cfg(epochs=1, out_dir=other_checkout, overwrite=True), blob_loaders)
+    assert pd.read_csv(tmp_path / "results" / "runs.csv")["seed"].tolist() == [0, 1, 0]
+
+
+def test_eval_test_is_refused_for_dvc(make_cfg):
+    with pytest.raises(ValueError, match="predict"):
+        run_experiment(make_cfg(task="dvc"), blob_loaders, eval_test=True)
+
+
 def test_run_ids_are_unique_and_returned(make_cfg, tmp_path):
     r1 = run_experiment(make_cfg(epochs=1, exp_name="u1"), blob_loaders)
     r2 = run_experiment(make_cfg(epochs=1, exp_name="u1", seed=1), blob_loaders)
@@ -341,6 +357,10 @@ def test_git_commit_tracks_code_changes_only(tmp_path):
     (tmp_path / "src" / "new_model.py").write_text("y = 1\n")  # new code that was never git-added
     assert _git_commit(tmp_path) == sha + "-dirty"
     (tmp_path / "src" / "new_model.py").unlink()
+    (tmp_path / "splits").mkdir()
+    (tmp_path / "splits" / "imb.csv").write_text("index\n3\n")  # an uncommitted split / index file
+    assert _git_commit(tmp_path) == sha + "-dirty"
+    (tmp_path / "splits" / "imb.csv").unlink()
     (tmp_path / "src" / "a.py").write_text("x = 2\n")
     assert _git_commit(tmp_path) == sha + "-dirty"
 
@@ -364,6 +384,14 @@ def test_injected_criterion_must_carry_cfg_label_smoothing(make_cfg):
     res = run_experiment(make_cfg(label_smoothing=0.1, exp_name="ok"), blob_loaders,
                          criterion=nn.CrossEntropyLoss(label_smoothing=0.1))
     assert res["best_val_acc"] > 0.5
+
+
+def test_custom_criterion_needs_its_own_loss_name(make_cfg):
+    with pytest.raises(ValueError, match="set cfg.loss"):
+        run_experiment(make_cfg(), blob_loaders, criterion=FlipAfter(16))
+    with pytest.raises(ValueError, match="set cfg.loss"):
+        run_experiment(make_cfg(), blob_loaders, criterion=nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0])))
+    assert run_experiment(make_cfg(), blob_loaders, criterion=nn.CrossEntropyLoss())["best_epoch"] >= 1
 
 
 def test_non_ce_loss_name_requires_injected_criterion(make_cfg):
@@ -498,6 +526,28 @@ def test_config_normalizes_numpy_path_and_list_values(tmp_path):
     assert cfg.out_dir == str(tmp_path)
     assert cfg.norm_mean == (0.5, 0.5, 0.5)
     yaml.safe_dump(cfg.to_dict())
+
+
+def test_parse_overrides_keeps_text_and_refuses_base60():
+    got = TrainConfig.parse_overrides(["notes=on", "exp_name=0123", "lr=1e-3", "patience=", "imb_ratio=1:10"])
+    assert got == {"notes": "on", "exp_name": "0123", "lr": "1e-3", "patience": None, "imb_ratio": "1:10"}
+    with pytest.raises(ValueError, match="imb_ratio"):
+        TrainConfig.from_dict(got)
+
+
+def test_empty_exp_name_is_refused():
+    with pytest.raises(ValueError, match="exp_name"):
+        TrainConfig(exp_name=" ")
+
+
+def test_duplicate_check_reads_bom_and_float_seeds(make_cfg, tmp_path):
+    run_experiment(make_cfg(epochs=1), blob_loaders)
+    csv_path = tmp_path / "results" / "runs.csv"
+    df = pd.read_csv(csv_path)
+    df["seed"] = df["seed"].astype(float)  # what a pandas round trip with a blank seed produces
+    csv_path.write_text(df.to_csv(index=False), encoding="utf-8-sig")
+    with pytest.raises(FileExistsError, match="already has"):
+        run_experiment(make_cfg(epochs=1, out_dir=str(tmp_path / "other")), blob_loaders)
 
 
 @pytest.mark.parametrize("field,value", [("amp", "maybe"), ("epochs", 2.5), ("lr", "fast")])
