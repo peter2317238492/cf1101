@@ -1,0 +1,2 @@
+# shared split files: identical bytes on every checkout, so regenerating them is a no-op
+splits/*.csv text eol=lf
