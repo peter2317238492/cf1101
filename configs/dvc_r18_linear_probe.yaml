@@ -18,5 +18,6 @@ epochs: 5
 scheduler: cosine
 warmup_epochs: 0.5
 amp: true
+channels_last: false   # pinned (the trainer default since 11/1); the fb26e20 hand-off run used it
 seed: 0
 num_workers: 4

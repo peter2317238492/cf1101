@@ -3,7 +3,7 @@
 - 起草：B，2026-11-01，基于 `master` `c2cf275`。用法细节见 [trainer_api.md](trainer_api.md)，排期见 [B_任务依赖与计划.md](B_任务依赖与计划.md)
 - 状态标记：✅ 已实现（写明位置）；🔲 待实现（写明谁、何时）
 - **待确认·A / 待确认·C / 待确认·全员**：计划里没写、由 B 先提出的默认值。对应的人回复之前不算定论。请直接回答文末的两张清单
-- ✅ 条目里的名字、路径、列名以代码为准；发现本文件和代码不一致，以代码为准，并在群里指出。标"待提交"的是 B 已经写好、测过、但还没 push 的代码
+- ✅ 条目里的名字、路径、列名以代码为准；发现本文件和代码不一致，以代码为准，并在群里指出。标 `fb26e20` 的是 11/1 新增、已经提交并测过的内容（合并进 master 并 push 之后，pull 下来就有）
 
 ## 0. 变更规则
 
@@ -33,7 +33,7 @@
 | `path` 是相对 `data/dogs-vs-cats/datasets/` 的路径，用正斜杠，例如 `train/cat/cat.0.jpg`；`label` 取 0/1；行按 `path` 排序 | **待确认·A** |
 | LF 换行，各平台上字节一致 | ✅ `.gitattributes`：`splits/*.csv text eol=lf` |
 | `cfg.n_train`：`null` 表示用 `dvc_train.csv` 全部；任意偶数 N 都按上面的规则取每类前 N/2 张，结果和 `dvc_train_n{N}.csv` 一致（n2000、n5000 两个文件就是这条规则写到盘上的结果）；奇数或超出范围时报错 | **待确认·A** |
-| A 交付之前的临时版：规则同上，只在内存里生成，不写文件 | ✅ 待提交：`src/dvc_standin.py` 的 `balanced_subset`；正式结果一律改用 A 的文件 |
+| A 交付之前的临时版：规则同上，只在内存里生成，不写文件 | ✅ `fb26e20`：`src/dvc_standin.py` 的 `balanced_subset`；正式结果一律改用 A 的文件 |
 
 ## 3. 预处理（猫狗）
 
@@ -42,7 +42,7 @@
 | 读图后统一 `convert('RGB')` | 计划已定；🔲 A |
 | 短边预缩放到 256（不能只缩到 128，否则预训练模型用不了 224 输入）。在线 Resize 还是写盘缓存由 A 决定，不影响接口 | 计划已定；🔲 A |
 | 归一化统一用 ImageNet 均值方差：`IMAGENET_MEAN` / `IMAGENET_STD`，它们也是 `TrainConfig.norm_mean` / `norm_std` 的默认值。loader 从 cfg 读取，不要写死 | 常量 ✅ `src/trainer.py`；使用 🔲 A |
-| 验证和测试 transform：`Resize(int(img_size * 256 / 224))` → `CenterCrop(img_size)` → `ToTensor` → `Normalize`（img_size=224 时就是先缩到 256 再裁 224） | B 的临时版已经这样做（`src/dvc_standin.py` 的 `eval_transform`，待提交）；**待确认·A** |
+| 验证和测试 transform：`Resize(int(img_size * 256 / 224))` → `CenterCrop(img_size)` → `ToTensor` → `Normalize`（img_size=224 时就是先缩到 256 再裁 224） | B 的临时版已经这样做（`src/dvc_standin.py` 的 `eval_transform`，`fb26e20`）；**待确认·A** |
 | `cfg.aug` 的预设名固定为 `none / flip / flip_rot / full`，默认 `flip`，只作用于训练集 | 名字 ✅（`TrainConfig.aug`，`docs/trainer_api.md` §6）；实现 🔲 A，约 11/2。B 的临时版只实现了 `none` 和 `flip`（flip 加在 CenterCrop 之后） |
 
 各预设的具体内容由 A 实现。下表是 B 的提议，**待确认·A**：
@@ -61,12 +61,12 @@
 | 细节 | 状态 |
 |---|---|
 | 模块放在 `src/dvc/data.py`，用 `from src.dvc.data import build_dvc_loaders` 导入（和 `src/cifar/data.py` 对应） | **待确认·A** |
-| 签名扩展为 `build_dvc_loaders(cfg, root=None)`。数据根目录的优先级：`root=` 参数 > 环境变量 `DVC_ROOT` > `data/dogs-vs-cats/datasets`（和 `CIFAR10_ROOT` 的规则相同；在 worktree 里运行时需要） | B 的临时版用的是同一规则（待提交）；A 的版本 **待确认·A** |
+| 签名扩展为 `build_dvc_loaders(cfg, root=None)`。数据根目录的优先级：`root=` 参数 > 环境变量 `DVC_ROOT` > `data/dogs-vs-cats/datasets`（和 `CIFAR10_ROOT` 的规则相同；在 worktree 里运行时需要） | B 的临时版用的是同一规则（`fb26e20`）；A 的版本 **待确认·A** |
 | 返回的 dict 里另外带 `'class_to_idx': {'cat': 0, 'dog': 1}`（或者让 dataset 带 `.class_to_idx` 属性）。两者都没有时，训练器只发警告，不检查标签映射 | 训练器行为 ✅；B 的临时版会返回这个键；A 的版本 **待确认·A** |
 | x 是 float32 `[B, 3, S, S]`，S = `cfg.img_size`；loader 读取 `cfg.img_size / aug / n_train / norm_mean / norm_std / bs / num_workers` | 这些字段 ✅ 已在 `TrainConfig` 中；读取逻辑 🔲 A |
 | train loader 设 `shuffle=True` 并传入 `**loader_kwargs(cfg.seed)`；val、test 设 `shuffle=False` | `loader_kwargs` ✅ `src/trainer.py`；🔲 A |
-| 猫狗的 `'test'` 没有标签，所以 `task: dvc` **不能**用 `run_experiment(..., eval_test=True)`。预测一律走 `predict` | ✅ 待提交：`run_experiment` 在 `task: dvc` 加 `eval_test=True` 时训练前就报错 |
-| B 的猫狗训练入口 `scripts/train_dvc.py`（`--config` `--seeds` `--set` `--data-root`）目前接的是临时 loader `build_standin_loaders`（`src/dvc_standin.py`），这些 run 的 `notes` 带 "stand-in loader"；A 的 `build_dvc_loaders` 到了以后改接 A 的函数 | ✅ 待提交 |
+| 猫狗的 `'test'` 没有标签，所以 `task: dvc` **不能**用 `run_experiment(..., eval_test=True)`。预测一律走 `predict` | ✅ `fb26e20`：`run_experiment` 在 `task: dvc` 加 `eval_test=True` 时训练前就报错 |
+| B 的猫狗训练入口 `scripts/train_dvc.py`（`--config` `--seeds` `--set` `--data-root`）目前接的是临时 loader `build_standin_loaders`（`src/dvc_standin.py`），这些 run 的 `notes` 带 "stand-in loader"；A 的 `build_dvc_loaders` 到了以后改接 A 的函数 | ✅ `fb26e20` |
 
 ## 5. Trainer API（✅ `src/trainer.py`，11/2 冻结，之后只增不改）
 
@@ -81,8 +81,8 @@ evaluate(model, loader, device=None, amp=True, channels_last=False)
 predict(model, loader, device=None, amp=True, channels_last=False)
     # -> DataFrame[id, prob_0..prob_{K-1}, pred]
 TrainConfig.from_yaml(path, **overrides) / TrainConfig.from_dict(d) / cfg.to_dict()
-TrainConfig.parse_overrides(["lr=1e-3", ...])   # 命令行 --set 的解析，两个训练脚本共用（新增，待提交）
-check_new_run(cfg)                         # 训练前检查 exp_name+seed 是否已跑完（新增，待提交；fit 内部也会调用）
+TrainConfig.parse_overrides(["lr=1e-3", ...])   # 命令行 --set 的解析，两个训练脚本共用（新增，`fb26e20`）
+check_new_run(cfg)                         # 训练前检查 exp_name+seed 是否已跑完（新增，`fb26e20`；fit 内部也会调用）
 ```
 
 `TrainConfig` 共 41 个字段，字段名写错会直接报错：
@@ -97,9 +97,9 @@ check_new_run(cfg)                         # 训练前检查 exp_name+seed 是�
 | 运行 | `amp` `channels_last` `seed` `deterministic` `num_workers` `device`（auto / cuda / cpu） `log_every` `out_dir` `results_csv` |
 
 - 多 seed 统一用 `[0, 1, 2]`，报告 mean±std（计划已定）。
-- ✅ `cfg.loss` 不是 `ce` 却没有传 `criterion` 时报错；criterion 的 `label_smoothing` 和 `cfg.label_smoothing` 不一致时报错。（待提交）反过来，`cfg.loss` 还是 `ce` 却传了加权 CE 或自定义 loss 时也报错：runs.csv 记的是 `cfg.loss`，名字必须和实际用的一致。`sampler` 同理，见 8.2。val 和 test 的 loss 一律按普通 CE 计算。
-- ✅ 训练前先 commit，ckpt 里才会记录正确的 SHA（`src/` `scripts/` `configs/` `tests/` `splits/` 下有未提交改动或没 `git add` 的新文件时记为 `<sha>-dirty`；`splits/` 这一条待提交）。Windows 下 `num_workers>0` 的脚本必须写 `if __name__ == "__main__":`。
-- ✅ 待提交：`channels_last` 默认改为 `false`。这台机器上（cuDNN 9.10）channels_last 会让带可训练 BatchNorm 的模型训练慢 5～10 倍；只有冻结骨干的线性探测开了更快。只改默认值，字段名不变，旧 config 照常运行。
+- ✅ `cfg.loss` 不是 `ce` 却没有传 `criterion` 时报错；criterion 的 `label_smoothing` 和 `cfg.label_smoothing` 不一致时报错。从 `fb26e20` 起，反过来，`cfg.loss` 还是 `ce` 却传了加权 CE 或自定义 loss 时也报错：runs.csv 记的是 `cfg.loss`，名字必须和实际用的一致。`sampler` 同理，见 8.2。val 和 test 的 loss 一律按普通 CE 计算。
+- ✅ 训练前先 commit，ckpt 里才会记录正确的 SHA（`src/` `scripts/` `configs/` `tests/` `splits/` 下有未提交改动或没 `git add` 的新文件时记为 `<sha>-dirty`；`splits/` 这一条从 `fb26e20` 起）。Windows 下 `num_workers>0` 的脚本必须写 `if __name__ == "__main__":`。
+- ✅ `fb26e20`：`channels_last` 默认改为 `false`。这台机器上（cuDNN 9.10）channels_last 会让带可训练 BatchNorm 的模型训练慢 5～10 倍；只有冻结骨干的线性探测开了更快。只改默认值，字段名不变，旧 config 照常运行。
 
 ## 6. 模型和 checkpoint（✅ `src/models/registry.py`）
 
@@ -112,7 +112,7 @@ check_new_run(cfg)                         # 训练前检查 exp_name+seed 是�
 | ckpt 保存在 `runs/{exp_name}/seed{seed}/best.pt`，包含这些键：`model_name` `num_classes` `state_dict` `cfg` `class_to_idx` `img_size` `norm_mean` `norm_std` `seed` `git_commit` `run_id` `criterion` `val_acc` `epoch` | ✅ 由 `fit` 调用 `save_ckpt` 写入 |
 | `load_ckpt(path, map_location="cpu") -> (model, ckpt)`，返回的模型在 CPU 上、处于 eval 模式、没有冻结任何层 | ✅ |
 | A 的从零训练 CNN 注册进同一张表，名字 `scratch_cnn_v1`，文件 `src/models/scratch_cnn.py` | 🔲 A，日期待填；名字和文件 **待确认·A** |
-| ckpt 交付：11/3 交线性探测版（`configs/dvc_r18_linear_probe.yaml` → `runs/dvc_r18_linear_probe/seed0/best.pt`），用来打通提交流程；11/7 冻结最终模型，规则是"正式 val 上 3 个 seed 的均值最高" | 11/3 版已训练（临时 loader，val 0.9888），代码提交后重跑一次再交，保证 ckpt 里的 commit 能对上代码；🔲 B（11/7 的最终模型由 A、B 共同决定） |
+| ckpt 交付：11/3 交线性探测版（`configs/dvc_r18_linear_probe.yaml` → `runs/dvc_r18_linear_probe/seed0/best.pt`），用来打通提交流程；11/7 冻结最终模型，规则是"正式 val 上 3 个 seed 的均值最高" | 11/3 版 ✅：commit `fb26e20`，临时 loader，val 0.9888，run_id `dvc_r18_linear_probe_seed0_20261101-211039-620057`；🔲 B（11/7 的最终模型由 A、B 共同决定） |
 | `*.pt` 和 `runs/` 都在 `.gitignore` 里，ckpt 不能通过 git 传。提议：用网盘传 `best.pt`，同时在群里发 `run_id` 和 `git_commit` | **待确认·A** |
 | 生成提交文件时，用胜出配置中 val acc 最高的那个 seed 的 `best.pt` | **待确认·A** |
 
@@ -125,7 +125,7 @@ check_new_run(cfg)                         # 训练前检查 exp_name+seed 是�
 run_id,member,task,model,pretrained,freeze,aug,img_size,n_train,n_val,optimizer,lr,wd,bs,epochs,scheduler,seed,best_val_acc,best_epoch,val_loss,test_acc,macro_f1,train_time_s,ckpt_path,git_commit,notes,exp_name,loss,sampler,imb_ratio,lr_backbone,label_smoothing,test_macro_f1
 ```
 
-- ✅ 同一个 `exp_name` 加 `seed` 已经跑完时（本地 run 目录里有 `metrics.json`，或者 `results/runs.csv` 里已有这一行，包括别人提交的），训练前就报错；确实要重跑就设 `overwrite: true`。总表里的旧行不要删（union 合并会把删掉的行带回来）；`aggregate.py` 对同一个 `exp_name` + `seed` 只取最新的 `run_id`。总表这一条检查待提交。
+- ✅ 同一个 `exp_name` 加 `seed` 已经跑完时（本地 run 目录里有 `metrics.json`，或者 `results/runs.csv` 里已有这一行，包括别人提交的），训练前就报错；确实要重跑就设 `overwrite: true`。总表里的旧行不要删（union 合并会把删掉的行带回来）；`aggregate.py` 对同一个 `exp_name` + `seed` 只取最新的 `run_id`。总表这一条检查从 `fb26e20` 起生效。
 - ✅ `.gitattributes` 把 `results/runs.csv` 设为 `merge=union`，两边各自追加的行在合并时都会保留。
 - ✅ 不要用 Excel 打开 `runs.csv`。写入失败时，这一行会存到 `results/runs.pending.csv`，之后手动并回去。
 - 🔲 B `aggregate.py`（11/5）：Q3、Q4、Q7、Q9 的表和图都由脚本从 `runs.csv` 生成，不手抄数字。脚本按 `exp_name` 分组计算 mean±std。
@@ -145,14 +145,14 @@ run_id,member,task,model,pretrained,freeze,aug,img_size,n_train,n_val,optimizer,
 |---|---|
 | 45k/5k 划分文件：`splits/cifar10_train45k.csv`（45000 行）和 `splits/cifar10_val5k.csv`（5000 行），列为 `index,label`。`index` 是 `data_batch_1..5` 拼接后的位置（0..49999）。按 seed 42 分层划分，每类 4500/500。不要重新划分 | ✅ |
 | `read_split("train" / "val") -> DataFrame[index, label]` | ✅ |
-| `build_cifar_loaders(cfg, root=None, train_indices=None, splits_dir=None, sampler=None)` 返回 `train` / `val` / `test` 三个 loader，都产出 `(x, label)`，另外附带 `class_to_idx`。`build_cifar_datasets(cfg, root=None, train_indices=None, splits_dir=None)` 返回 dataset；`cifar_loaders(cfg, ds, sampler=None)` 用已有的 dataset 建 loader；`dataset_targets(ds["train"])` 取训练集标签 | ✅（`sampler=`、`cifar_loaders`、`dataset_targets` 待提交） |
+| `build_cifar_loaders(cfg, root=None, train_indices=None, splits_dir=None, sampler=None)` 返回 `train` / `val` / `test` 三个 loader，都产出 `(x, label)`，另外附带 `class_to_idx`。`build_cifar_datasets(cfg, root=None, train_indices=None, splits_dir=None)` 返回 dataset；`cifar_loaders(cfg, ds, sampler=None)` 用已有的 dataset 建 loader；`dataset_targets(ds["train"])` 取训练集标签 | ✅（`sampler=`、`cifar_loaders`、`dataset_targets` 从 `fb26e20` 起） |
 | 数据根目录的优先级：`root=` 参数 > 环境变量 `CIFAR10_ROOT` > `data/cifar10` | ✅ |
 | `train_indices` 必须是 45k 的子集，否则报 `ValueError`；允许重复（用于过采样）；不能和 `cfg.n_train` 同时使用 | ✅ `_train_positions` |
 | val 始终是平衡的 5k，test 始终是官方 10k；C 的不平衡子集只能从 45k 中抽取 | ✅ loader 强制执行 |
 | CIFAR 的 `cfg.aug` 是另一套名字，即 `AUGMENTATIONS` 的键，目前有 `none`、`crop_flip`。B 为 Q8 的改进新增预设时只增不改 | 已有部分 ✅；新增 🔲 B，11/6 前 |
 | `cifar_resnet18` 必须配 `img_size: 32`，否则报错 | ✅ `_check_cfg` |
 
-### 8.2 `scripts/train_cifar.py`（✅ 已实现并测过，待提交；11/4 前交付）
+### 8.2 `scripts/train_cifar.py`（✅ `fb26e20`，11/4 前交付）
 
 ```bash
 python -m scripts.train_cifar --config configs/cifar_baseline.yaml [--seeds 0 1 2] [--set key=value ...] [--train-indices <csv>] [--root <cifar dir>] [--eval-test]
@@ -217,10 +217,10 @@ python -m scripts.train_cifar --config configs/cifar_final.yaml --seeds 0 1 2 \
 
 | 日期 | 交付 | 谁 → 谁 | 状态 |
 |---|---|---|---|
-| 11/2 | trainer v1，API 冻结 | B → A、C | ✅ `c2cf275` + 待提交的补充（`channels_last` 默认值、`parse_overrides`、`check_new_run`、`splits/` 计入 -dirty、criterion 名字检查）；提交后以新 SHA 冻结 |
+| 11/2 | trainer v1，API 冻结 | B → A、C | ✅ `c2cf275`，加上 `fb26e20` 的补充（`channels_last` 默认值、`parse_overrides`、`check_new_run`、`splits/` 计入 -dirty、criterion 名字检查）；以 `fb26e20` 为冻结版本 |
 | 11/2 | 数据管线 v1：`build_dvc_loaders` 加正式 split | A → B | 🔲 A |
-| 11/3 | 线性探测 ckpt，用来打通提交流程 | B → A | 已训练（val 0.9888），提交代码后重跑再交 |
-| 11/4 | `train_cifar.py` 和平衡基线 | B → C | ✅ 待提交；基线 seed 0 val 0.9698（暂定，提交后重跑） |
+| 11/3 | 线性探测 ckpt，用来打通提交流程 | B → A | ✅ `fb26e20` 训练完成，val 0.9888；ckpt 走网盘 |
+| 11/4 | `train_cifar.py` 和平衡基线 | B → C | ✅ `fb26e20`；基线 seed 0 val 0.9688（第 8 个 epoch） |
 | 11/6 | `configs/cifar_final.yaml` 硬冻结 | B → C | 🔲 B |
 | 11/7 | 冻结最终提交模型；完成 CIFAR 3 个 seed 的 test 评估 | A + B；B → C | 🔲 |
 | 11/8 | 增强消融结果写入 `runs.csv`；交 `submission.csv` | A → B | 🔲 A |
