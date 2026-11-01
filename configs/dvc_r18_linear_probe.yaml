@@ -6,7 +6,7 @@ model: resnet18
 num_classes: 2
 pretrained: true
 freeze: backbone
-aug: rrc_flip
+aug: flip
 img_size: 224
 optimizer: sgd
 lr: 1e-2

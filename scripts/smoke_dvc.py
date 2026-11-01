@@ -29,12 +29,17 @@ def balanced_subset(ds, n, seed=42):
     return Subset(ds, sorted(picked))
 
 
+STAND_IN_AUGS = ("none", "flip")  # flip_rot / full arrive with A's loader
+
+
 def build_loaders(cfg, n_val):
+    if cfg.aug not in STAND_IN_AUGS:
+        raise ValueError(f"stand-in loader implements aug in {STAND_IN_AUGS}, got {cfg.aug!r}")
     norm = transforms.Normalize(cfg.norm_mean, cfg.norm_std)
-    train_tf = transforms.Compose([transforms.RandomResizedCrop(cfg.img_size, scale=(0.6, 1.0)),
-                                   transforms.RandomHorizontalFlip(), transforms.ToTensor(), norm])
-    eval_tf = transforms.Compose([transforms.Resize(int(cfg.img_size * 256 / 224)),
-                                  transforms.CenterCrop(cfg.img_size), transforms.ToTensor(), norm])
+    resize = [transforms.Resize(int(cfg.img_size * 256 / 224)), transforms.CenterCrop(cfg.img_size)]
+    flip = [transforms.RandomHorizontalFlip()] if cfg.aug == "flip" else []
+    train_tf = transforms.Compose(resize + flip + [transforms.ToTensor(), norm])
+    eval_tf = transforms.Compose(resize + [transforms.ToTensor(), norm])
     train = datasets.ImageFolder(DATA_ROOT / "train", train_tf)
     val = datasets.ImageFolder(DATA_ROOT / "val", eval_tf)
     assert train.class_to_idx == {"cat": 0, "dog": 1}, train.class_to_idx
@@ -53,9 +58,10 @@ def main():
     ap.add_argument("--n-val", type=int, default=500)
     ap.add_argument("--epochs", type=int, default=2)
     ap.add_argument("--freeze", default="backbone")
+    ap.add_argument("--aug", default="flip", choices=STAND_IN_AUGS)
     args = ap.parse_args()
     cfg = TrainConfig(exp_name=f"smoke_dvc_r18_{args.freeze}", member="B", task="dvc", model="resnet18",
-                      pretrained=True, freeze=args.freeze, aug="rrc_flip", img_size=224, n_train=args.n_train,
+                      pretrained=True, freeze=args.freeze, aug=args.aug, img_size=224, n_train=args.n_train,
                       optimizer="sgd", lr=0.01, wd=1e-4, bs=64, epochs=args.epochs, scheduler="cosine",
                       warmup_epochs=0.5, num_workers=4, notes="smoke test, stand-in loader",
                       out_dir="runs/smoke", results_csv="runs/smoke/runs.csv", overwrite=True)

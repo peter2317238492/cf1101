@@ -104,7 +104,8 @@ res = run_experiment(cfg, build_loaders, criterion=my_loss, eval_test=True)  # l
 from src.models.registry import load_ckpt
 from src.trainer import predict
 
-model, ckpt = load_ckpt("runs/<exp>/seed0/best.pt", map_location="cuda")
+model, ckpt = load_ckpt("runs/<exp>/seed0/best.pt")
+model = model.to("cuda")                      # load_ckpt 返回的模型在 CPU 上，predict 在模型所在的设备上跑
 # 测试图的预处理要和 ckpt["img_size"]、ckpt["norm_mean"]、ckpt["norm_std"] 保持一致
 df = predict(model, test_loader)              # 返回列 id, prob_0, prob_1, pred；字符串数字 id 会自动转成 int
 df = df.sort_values("id")                     # 按数值排序
@@ -127,6 +128,7 @@ df[["id", "pred"]].rename(columns={"pred": "label"}).to_csv("submission.csv", in
 - 同一个 `exp_name` 加 `seed` 已经完整跑过的话，再跑会直接报错，不会覆盖。确实要重跑就在 cfg 里加 `overwrite: true`。
 - **不要用 Excel 直接打开 `runs.csv`**，Excel 会锁住文件。要看的话用 pandas、VS Code，或者先复制一份。万一写入失败，训练器会重试约 30 秒；还是失败就把这一行存到 `results/runs.pending.csv`，事后手动并回去。
 - 以后只会在表末尾加新列。旧格式的 `runs.csv` 会自动迁移；如果文件里出现训练器不认识的列，训练开始前就会报错。
+- `.gitattributes` 把 `runs.csv` 设成 union 合并：两个人各自追加的行在 git merge 时都会保留，不会冲突（行的先后可能交错，用 `run_id` 区分）。例外是训练器加了新列、某一边的表头被自动迁移过，那次合并要手动检查。
 
 ## 6. 常用配置字段
 
@@ -141,7 +143,7 @@ df[["id", "pred"]].rename(columns={"pred": "label"}).to_csv("submission.csv", in
 | `epochs` / `bs` / `patience` | 10 / 64 / null | `patience` 设了就按 val acc 早停 |
 | `label_smoothing` / `grad_clip` | 0 / null | |
 | `loss` / `sampler` / `imb_ratio` | ce / none / null | 不平衡实验用，见第 3 节 |
-| `aug` / `img_size` / `n_train` / `norm_mean` / `norm_std` | flip / 224 / null / ImageNet 均值方差 | 由 loader 使用，训练器只负责记录 |
+| `aug` / `img_size` / `n_train` / `norm_mean` / `norm_std` | flip / 224 / null / ImageNet 均值方差 | 由 loader 使用，训练器只负责记录；猫狗的 `aug` 只用约定的 `none` / `flip` / `flip_rot` / `full` |
 | `amp` / `channels_last` / `deterministic` | true / true / false | 后两项只在 CUDA 上生效 |
 | `num_workers` / `device` | 4 / auto | |
 | `out_dir` / `results_csv` / `overwrite` | runs / results/runs.csv / false | |
@@ -151,5 +153,5 @@ df[["id", "pred"]].rename(columns={"pred": "label"}).to_csv("submission.csv", in
 
 ## 7. 复现性
 
-- 训练前先把代码 commit，checkpoint 里才会记录 SHA。没有提交时记为 `no-commit`；`src/`、`scripts/`、`configs/`、`tests/` 下有未提交改动时记为 `<sha>-dirty`。
+- 训练前先把代码 commit，checkpoint 里才会记录 SHA。没有提交时记为 `no-commit`；`src/`、`scripts/`、`configs/`、`tests/` 下有未提交改动时记为 `<sha>-dirty`，还没 `git add` 的新文件（比如新写的模型或 config）也算。
 - 固定 seed 后，同一台机器上的结果基本可复现：冒烟测试重跑两次，验证集指标完全一致。cuDNN 和 AMP 仍可能带来极小差异，所以报告里的说法是"固定种子并对 3 个 seed 取平均"，不承诺逐位一致。
