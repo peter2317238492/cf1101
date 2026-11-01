@@ -3,8 +3,9 @@
 代码在 `src/trainer.py`（训练器）和 `src/models/registry.py`（模型注册表、checkpoint 读写）。
 
 ```bash
-python -m pytest -q                                            # 73 个单元测试，约 15 秒
+python -m pytest -q                                            # 98 个单元测试，约 20 秒（没找到真实 CIFAR 时跳过 1 个）
 python -m scripts.smoke_dvc --n-train 1000 --n-val 500 --epochs 2   # 真实猫狗数据的 GPU 冒烟测试
+python -m scripts.smoke_cifar --epochs 1                            # 真实 CIFAR-10 的 GPU 冒烟测试（45k，约 1.5 分钟）
 ```
 
 ## 1. 最小用法
@@ -56,12 +57,38 @@ def scratch_cnn_v1(num_classes, pretrained=False):
 
 ## 3. C：CIFAR 不平衡实验
 
+### CIFAR-10 数据（`src/cifar/data.py`）
+
+50k 官方训练集已按 seed 42 分层划成 45k train / 5k val（每类 4500/500），索引在 `splits/cifar10_train45k.csv` 和 `splits/cifar10_val5k.csv` 里（列为 `index,label`，index 是 data_batch_1..5 拼接后的位置）。这两个文件已提交，loader 直接读它们，并核对标签和数据是否一致。不要自己重新划分；`python -m scripts.make_cifar_splits` 重跑只会得到完全相同的文件。
+
+```python
+from functools import partial
+from src.cifar.data import CIFAR10_MEAN, CIFAR10_STD, build_cifar_loaders, read_split
+
+cfg = TrainConfig(task="cifar10", model="cifar_resnet18", num_classes=10, img_size=32, aug="crop_flip",
+                  norm_mean=CIFAR10_MEAN, norm_std=CIFAR10_STD, ...)
+res = run_experiment(cfg, build_cifar_loaders, eval_test=True)
+
+train = read_split("train")          # DataFrame[index, label]，不平衡子集只能从这里抽
+imb_indices = ...                    # 按类从 train["index"] 里取
+res = run_experiment(cfg, partial(build_cifar_loaders, train_indices=imb_indices), criterion=my_loss, eval_test=True)
+```
+
+- 数据路径：`root=` 参数 > 环境变量 `CIFAR10_ROOT` > 项目下的 `data/cifar10`。指向 `cifar-10-batches-py` 本身或它的上一级都可以。在 worktree 里运行时设 `CIFAR10_ROOT=E:/6483proj/data/cifar10`。
+- 返回 `train` / `val` / `test` 三个 loader，都产出 `(x, label)`，另外附带 `class_to_idx`。`test` 是官方 10k，只在最终评估时用一次（`eval_test=True`）。
+- `aug` 可选 `none`、`crop_flip`（RandomCrop 32 padding 4 + 水平翻转），只作用于训练集。`img_size` 不是 32 时会把图放大（例如 ImageNet 预训练的 `resnet18` 用 224）；`cifar_resnet18` 必须配 `img_size: 32`。
+- `n_train`：从 45k 里取一个按类均衡的嵌套子集，所有 seed 用的是同一个子集。它不能和 `train_indices` 同时使用。
+- `train_indices`：传入后训练集变成 `Subset(train_45k, ...)`。不在 45k 里的索引（比如 val 的）会直接报错；允许重复索引，可以用来做过采样。
+- 要自己配采样器（例如 `WeightedRandomSampler`）时，用 `build_cifar_datasets(cfg, train_indices=...)` 拿到 dataset 后自己建 train loader。标签是 `ds.targets`，包了 `Subset` 时是 `ds.dataset.targets[ds.indices]`。
+
+### 不平衡方法
+
 | 方法 | 实现方式 | cfg 里要写的字段 |
 |---|---|---|
 | 加权 CE | `criterion=nn.CrossEntropyLoss(weight=w, label_smoothing=cfg.label_smoothing)` | `loss: weighted_ce` |
 | Focal loss | 自己写一个 `nn.Module`，里面的张量用 `register_buffer` 存（这样 `.to(device)` 才会带过去） | `loss: focal` |
 | 重采样 | 在 `build_loaders` 里用 `WeightedRandomSampler(w, len(w), generator=torch.Generator().manual_seed(cfg.seed))`，同时去掉 `shuffle` | `sampler: weighted` |
-| 不平衡子集 | `Subset(train_45k, imb_indices)`，索引从 `splits/` 读 | `imb_ratio: 0.1` |
+| 不平衡子集 | `build_cifar_loaders(cfg, train_indices=imb_indices)`，索引从 `read_split("train")` 里抽 | `imb_ratio: 0.1` |
 
 ```python
 res = run_experiment(cfg, build_loaders, criterion=my_loss, eval_test=True)  # loaders 里要有带标签的 "test"
