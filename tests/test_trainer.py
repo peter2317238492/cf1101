@@ -338,6 +338,9 @@ def test_git_commit_tracks_code_changes_only(tmp_path):
     (tmp_path / "notes.txt").write_text("untracked")
     (tmp_path / "results" / "runs.csv").write_text("run_id\nr1\n")
     assert _git_commit(tmp_path) == sha
+    (tmp_path / "src" / "new_model.py").write_text("y = 1\n")  # new code that was never git-added
+    assert _git_commit(tmp_path) == sha + "-dirty"
+    (tmp_path / "src" / "new_model.py").unlink()
     (tmp_path / "src" / "a.py").write_text("x = 2\n")
     assert _git_commit(tmp_path) == sha + "-dirty"
 

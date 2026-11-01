@@ -358,14 +358,14 @@ def predict(model, loader, device=None, amp=True, channels_last=False):
 # ---------- run bookkeeping ----------
 
 def _git_commit(root=PROJECT_ROOT):
-    """Short SHA of HEAD, with -dirty if tracked code (CODE_DIRS) has uncommitted changes."""
+    """Short SHA of HEAD, with -dirty if CODE_DIRS hold uncommitted edits or new untracked files."""
     git = ["git", "-c", "safe.directory=*", "-C", str(root)]
     try:
         head = subprocess.run(git + ["rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10)
         sha = head.stdout.strip()
         if head.returncode != 0 or not sha:
             return "no-commit"
-        dirty = subprocess.run(git + ["status", "--porcelain", "--untracked-files=no", "--", *CODE_DIRS],
+        dirty = subprocess.run(git + ["status", "--porcelain", "--", *CODE_DIRS],
                                capture_output=True, text=True, timeout=10).stdout.strip()
         return f"{sha}-dirty" if dirty else sha
     except (OSError, subprocess.SubprocessError):

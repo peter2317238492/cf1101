@@ -1,0 +1,2 @@
+# runs.csv only ever gains rows at the end: on merge keep both sides' new rows instead of conflicting
+results/runs.csv merge=union
