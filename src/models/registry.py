@@ -16,7 +16,7 @@ Modules anywhere in `src/models/` are imported automatically the first time an
 unknown name is requested, so `load_ckpt` works without extra imports.
 
 Models must flatten feature maps with torch.flatten(x, 1) / nn.Flatten / reshape, not
-.view: on GPU the trainer runs channels_last, where .view on a conv map fails.
+.view: with cfg.channels_last on (GPU only), .view on a conv map fails.
 """
 import importlib
 import pkgutil

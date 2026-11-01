@@ -2,8 +2,9 @@
 
     python -m scripts.smoke_cifar --root E:/6483proj/data/cifar10 --epochs 1
 
-One epoch on the full 45k reaches ~27% val on a laptop RTX 3070 Ti in ~1.5 min; --n-train 5000 is quicker
-but stays near chance (only 39 SGD steps).
+Scores val only (the official 10k test set is for the final runs). One epoch on the full 45k reached 33% val
+on a laptop RTX 3070 Ti in ~1.7 min (95 s epoch, measured with channels_last=True, the default before 11/1;
+expect about 1 min now); --n-train 5000 is quicker but stays near chance (only 39 SGD steps).
 """
 import argparse
 from functools import partial
@@ -23,9 +24,9 @@ def main():
                       norm_mean=CIFAR10_MEAN, norm_std=CIFAR10_STD, optimizer="sgd", lr=0.1, wd=5e-4, bs=128,
                       epochs=args.epochs, scheduler="cosine", num_workers=4, notes="smoke test, not for reporting",
                       out_dir="runs/smoke", results_csv="runs/smoke/runs.csv", overwrite=True)
-    res = run_experiment(cfg, partial(build_cifar_loaders, root=args.root), eval_test=True)
-    print(f"best val acc {res['best_val_acc']:.4f} at epoch {res['best_epoch']}, "
-          f"test acc {res['test_metrics']['acc']:.4f} -> {res['ckpt_path']}")
+    # val only: the official 10k test set is scored once, in the final runs (eval_test=True there)
+    res = run_experiment(cfg, partial(build_cifar_loaders, root=args.root))
+    print(f"best val acc {res['best_val_acc']:.4f} at epoch {res['best_epoch']} -> {res['ckpt_path']}")
 
 
 if __name__ == "__main__":

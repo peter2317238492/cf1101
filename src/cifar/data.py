@@ -3,7 +3,7 @@
     from src.cifar.data import CIFAR10_MEAN, CIFAR10_STD, build_cifar_loaders
     cfg = TrainConfig(task="cifar10", model="cifar_resnet18", num_classes=10, img_size=32, aug="crop_flip",
                       norm_mean=CIFAR10_MEAN, norm_std=CIFAR10_STD, ...)
-    res = run_experiment(cfg, build_cifar_loaders, eval_test=True)
+    res = run_experiment(cfg, build_cifar_loaders)   # val only; eval_test=True for final runs only
 
 The 50k official training images were split once (seed 42, stratified, 4500/500 per class) into
 splits/cifar10_train45k.csv and splits/cifar10_val5k.csv, columns `index,label`, where index is the
@@ -218,7 +218,8 @@ def _check_cfg(cfg):
 
 def build_cifar_datasets(cfg, root=None, train_indices=None, splits_dir=None):
     """The datasets behind build_cifar_loaders: {"train", "val", "test", "class_to_idx"}.
-    Use it to build your own train loader (e.g. with a WeightedRandomSampler); labels are in `.targets`."""
+    Use it to build your own train loader (e.g. with a WeightedRandomSampler); dataset_targets(ds["train"])
+    gives the train labels."""
     _check_cfg(cfg)
     if train_indices is not None and cfg.n_train is not None:
         raise ValueError("pass train_indices or cfg.n_train, not both; subsample train_indices yourself")
@@ -239,7 +240,14 @@ def build_cifar_datasets(cfg, root=None, train_indices=None, splits_dir=None):
     }
 
 
-def build_cifar_loaders(cfg, root=None, train_indices=None, splits_dir=None):
+def dataset_targets(dataset):
+    """int64 labels of a dataset from build_cifar_datasets, in dataset order (unwraps nested Subsets)."""
+    if isinstance(dataset, Subset):
+        return dataset_targets(dataset.dataset)[np.asarray(dataset.indices, dtype=np.int64)]
+    return np.asarray(dataset.targets, dtype=np.int64)
+
+
+def build_cifar_loaders(cfg, root=None, train_indices=None, splits_dir=None, sampler=None):
     """Loaders for run_experiment. "train", "val" and "test" yield (x float32 [B, 3, S, S], label int64)
     with S = cfg.img_size; "class_to_idx" maps class names to labels.
 
@@ -247,13 +255,34 @@ def build_cifar_loaders(cfg, root=None, train_indices=None, splits_dir=None):
       cfg.n_train takes a class-balanced, nested subset of it (same subset for every cfg.seed).
       train_indices (C's imbalanced subsets) wraps it in Subset; they are indices into the 50k official
       training images and must all come from the 45k split. Duplicates are kept (oversampling).
+      sampler (optional, over positions in the train dataset) replaces the shuffle; see cifar_loaders.
+      cfg.sampler is only a record here: a registered sampler name is applied by src.cifar.train.run_cifar
+      (scripts/train_cifar.py), so a cfg.sampler other than "none" without sampler= is an error.
     val: the 5k split. test: the official 10k test batch; evaluate it once, at the end (eval_test=True).
     Bind root / train_indices / splits_dir with functools.partial before passing it to run_experiment."""
-    ds = build_cifar_datasets(cfg, root, train_indices, splits_dir)
+    if sampler is None and cfg.sampler != "none":
+        raise ValueError(f"cfg.sampler={cfg.sampler!r} is applied only by src.cifar.train.run_cifar / "
+                         f"scripts.train_cifar; use those, or pass sampler= yourself")
+    return cifar_loaders(cfg, build_cifar_datasets(cfg, root, train_indices, splits_dir), sampler)
+
+
+def cifar_loaders(cfg, ds, sampler=None):
+    """The loaders of build_cifar_loaders, built from datasets you already hold (build_cifar_datasets output).
+    With a sampler the train loader does not shuffle; a sampler whose `generator` is None (e.g.
+    WeightedRandomSampler(w, n)) gets torch.Generator().manual_seed(cfg.seed), re-seeded on every call, so its
+    draws depend only on the seed even if the same sampler object is reused for several seeds."""
     workers = dict(num_workers=cfg.num_workers, pin_memory=torch.cuda.is_available())
+    if sampler is not None and cfg.sampler == "none":
+        raise ValueError("a sampler was passed but cfg.sampler is 'none'; set cfg.sampler to its name "
+                         "(runs.csv records cfg.sampler)")
+    if sampler is not None and (getattr(sampler, "generator", False) is None or getattr(sampler, "_auto_gen", False)):
+        sampler.generator = torch.Generator().manual_seed(cfg.seed)
+        sampler._auto_gen = True
+    n_drawn = len(ds["train"]) if sampler is None else len(sampler)
     return {
-        "train": DataLoader(ds["train"], batch_size=cfg.bs, shuffle=True, drop_last=len(ds["train"]) > cfg.bs,
-                            persistent_workers=cfg.num_workers > 0, **workers, **loader_kwargs(cfg.seed)),
+        "train": DataLoader(ds["train"], batch_size=cfg.bs, shuffle=sampler is None, sampler=sampler,
+                            drop_last=n_drawn > cfg.bs, persistent_workers=cfg.num_workers > 0, **workers,
+                            **loader_kwargs(cfg.seed)),
         "val": DataLoader(ds["val"], batch_size=cfg.bs, shuffle=False, persistent_workers=cfg.num_workers > 0,
                           **workers),
         # one pass over 10k small images: on Windows, starting workers (~4 s each) costs more than they save

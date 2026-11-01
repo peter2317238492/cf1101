@@ -1,0 +1,30 @@
+# CIFAR-10 balanced baseline, provisional Q8 "before" reference and balanced reference for C's Q9:
+# ImageNet ResNet-18 (standard stem), full fine-tune, 32 px images resized to 224. Not yet the final Dogs-vs-Cats
+# recipe (frozen 11/7); re-align or add a row once that is decided.
+#   python -m scripts.train_cifar --config configs/cifar_baseline.yaml
+exp_name: cifar_baseline_r18_pt224
+task: cifar10
+member: B
+model: resnet18
+num_classes: 10
+pretrained: true
+freeze: none
+aug: crop_flip            # RandomCrop(32, padding=4) + flip at 32 px, then resize
+img_size: 224
+norm_mean: [0.485, 0.456, 0.406]   # ImageNet statistics, because the weights are ImageNet's
+norm_std: [0.229, 0.224, 0.225]
+loss: ce
+sampler: none
+label_smoothing: 0.0
+optimizer: sgd
+lr: 0.01
+momentum: 0.9
+wd: 5e-4
+bs: 128
+epochs: 10
+scheduler: cosine
+warmup_epochs: 0.5
+amp: true
+channels_last: false      # also the trainer default; with cuDNN 9.10 it made R18 training ~6x slower here
+seed: 0
+num_workers: 4

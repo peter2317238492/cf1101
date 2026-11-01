@@ -1,4 +1,6 @@
-# Example: ImageNet ResNet-18, frozen backbone (linear probe) on Dogs vs Cats.
+# ImageNet ResNet-18, frozen backbone (linear probe) on Dogs vs Cats: full train/ (20k), full val/ (5k).
+# 11/3 hand-off checkpoint for A's submission pipeline -> runs/dvc_r18_linear_probe/seed0/best.pt
+#   python -m scripts.train_dvc --config configs/dvc_r18_linear_probe.yaml [--data-root DIR]
 exp_name: dvc_r18_linear_probe
 task: dvc
 member: B
